@@ -30,6 +30,10 @@
 
   <canvas id="collage-canvas"></canvas>
 
+  <div id="status-message" style="margin-top: 1rem; font-weight: bold;"></div>
+  <div id="collage-count" style="margin-top: 0.5rem;"></div>
+
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script>
     const dropZone = document.getElementById('drop-zone');
@@ -62,64 +66,84 @@
     });
 
     async function handleFiles(files) {
-      const dpi = +document.getElementById('dpi').value;
-      const widthIn = +document.getElementById('card-width').value;
-      const heightIn = +document.getElementById('card-height').value;
-      const cols = +document.getElementById('grid-cols').value;
-      const rows = +document.getElementById('grid-rows').value;
+        const dpi = +document.getElementById('dpi').value;
+        const widthIn = +document.getElementById('card-width').value;
+        const heightIn = +document.getElementById('card-height').value;
+        const cols = +document.getElementById('grid-cols').value;
+        const rows = +document.getElementById('grid-rows').value;
 
-      const canvasWidth = widthIn * dpi;
-      const canvasHeight = heightIn * dpi;
-      const perCollage = cols * rows;
+        const canvasWidth = widthIn * dpi;
+        const canvasHeight = heightIn * dpi;
+        const perCollage = cols * rows;
 
-      canvas.width = canvasWidth;
-      canvas.height = canvasHeight;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
 
-      const zip = new JSZip();
+        const zip = new JSZip();
 
-      const chunks = [];
-      for (let i = 0; i < files.length; i += perCollage) {
-        chunks.push(files.slice(i, i + perCollage));
-      }
+        // UI updates
+        const status = document.getElementById('status-message');
+        const count = document.getElementById('collage-count');
+        status.textContent = `📥 Received ${files.length} image(s)`;
+        count.textContent = '';
+        downloadBtn.disabled = true;
 
-      for (let i = 0; i < chunks.length; i++) {
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        const chunks = [];
+        for (let i = 0; i < files.length; i += perCollage) {
+            chunks.push(files.slice(i, i + perCollage));
+        }
 
-        const images = await Promise.all(chunks[i].map(loadImage));
-        const cellW = canvasWidth / cols;
-        const cellH = canvasHeight / rows;
+        status.textContent = `⏳ Processing ${chunks.length} collage(s)...`;
 
-        images.forEach((img, idx) => {
-          const col = idx % cols;
-          const row = Math.floor(idx / cols);
+        for (let i = 0; i < chunks.length; i++) {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-          const { drawWidth, drawHeight, rotate } = fitImage(img, cellW, cellH);
-          const x = col * cellW + (cellW - drawWidth) / 2;
-          const y = row * cellH + (cellH - drawHeight) / 2;
+            const images = await Promise.all(chunks[i].map(loadImage));
+            const cellW = canvasWidth / cols;
+            const cellH = canvasHeight / rows;
 
-          ctx.save();
-          ctx.translate(x + drawWidth / 2, y + drawHeight / 2);
-          if (rotate) ctx.rotate(Math.PI / 2);
-          ctx.drawImage(img, rotate ? -drawHeight / 2 : -drawWidth / 2, rotate ? -drawWidth / 2 : -drawHeight / 2,
-                        rotate ? drawHeight : drawWidth, rotate ? drawWidth : drawHeight);
-          ctx.restore();
-        });
+            images.forEach((img, idx) => {
+            const col = idx % cols;
+            const row = Math.floor(idx / cols);
 
-        const dataURL = canvas.toDataURL('image/jpeg', 0.95);
-        const blob = await (await fetch(dataURL)).blob();
-        zip.file(`collage_${i + 1}.jpg`, blob);
-      }
+            const { drawWidth, drawHeight, rotate } = fitImage(img, cellW, cellH);
+            const x = col * cellW + (cellW - drawWidth) / 2;
+            const y = row * cellH + (cellH - drawHeight) / 2;
 
-      downloadBtn.disabled = false;
-      downloadBtn.onclick = async () => {
-        const content = await zip.generateAsync({ type: 'blob' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(content);
-        a.download = 'collages.zip';
-        a.click();
-      };
-    }
+            ctx.save();
+            ctx.translate(x + drawWidth / 2, y + drawHeight / 2);
+            if (rotate) ctx.rotate(Math.PI / 2);
+            ctx.drawImage(
+                img,
+                rotate ? -drawHeight / 2 : -drawWidth / 2,
+                rotate ? -drawWidth / 2 : -drawHeight / 2,
+                rotate ? drawHeight : drawWidth,
+                rotate ? drawWidth : drawHeight
+            );
+            ctx.restore();
+            });
+
+            const dataURL = canvas.toDataURL('image/jpeg', 0.95);
+            const blob = await (await fetch(dataURL)).blob();
+            zip.file(`collage_${i + 1}.jpg`, blob);
+        }
+
+        downloadBtn.disabled = false;
+        status.textContent = `✅ Ready! ${chunks.length} collage(s) created`;
+        count.textContent = `🖼️ You will download ${chunks.length} collage image(s)`;
+
+        downloadBtn.onclick = async () => {
+            status.textContent = `📦 Preparing ZIP...`;
+            const content = await zip.generateAsync({ type: 'blob' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(content);
+            a.download = 'collages.zip';
+            a.click();
+            status.textContent = `✅ ZIP downloaded`;
+        };
+        }
+
 
     function fitImage(img, boxW, boxH) {
       const iw = img.width, ih = img.height;
