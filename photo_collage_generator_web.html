@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Photo Collage Generator</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: auto; padding: 2rem; }
+    #drop-zone { border: 2px dashed #aaa; padding: 2rem; text-align: center; margin: 1rem 0; cursor: pointer; }
+    canvas { display: none; }
+    label { display: block; margin-top: 0.5rem; }
+    input { width: 100px; }
+    button { margin-top: 1rem; }
+  </style>
+</head>
+<body>
+
+  <h1>Photo Collage Generator</h1>
+
+  <form id="config-form">
+    <label>DPI: <input type="number" id="dpi" value="300"></label>
+    <label>Card Width (in): <input type="number" id="card-width" value="6"></label>
+    <label>Card Height (in): <input type="number" id="card-height" value="4"></label>
+    <label>Grid Columns: <input type="number" id="grid-cols" value="2"></label>
+    <label>Grid Rows: <input type="number" id="grid-rows" value="1"></label>
+  </form>
+
+  <div id="drop-zone">Drop image files here or click to select</div>
+  <input type="file" id="file-input" multiple accept="image/*" style="display:none" />
+  <button id="download-zip" disabled>Download Collages ZIP</button>
+
+  <canvas id="collage-canvas"></canvas>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const downloadBtn = document.getElementById('download-zip');
+    const canvas = document.getElementById('collage-canvas');
+    const ctx = canvas.getContext('2d');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropZone.style.background = '#eee';
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.style.background = '';
+    });
+
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.style.background = '';
+      const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+      handleFiles(files);
+    });
+
+    fileInput.addEventListener('change', () => {
+      const files = [...fileInput.files].filter(f => f.type.startsWith('image/'));
+      handleFiles(files);
+    });
+
+    async function handleFiles(files) {
+      const dpi = +document.getElementById('dpi').value;
+      const widthIn = +document.getElementById('card-width').value;
+      const heightIn = +document.getElementById('card-height').value;
+      const cols = +document.getElementById('grid-cols').value;
+      const rows = +document.getElementById('grid-rows').value;
+
+      const canvasWidth = widthIn * dpi;
+      const canvasHeight = heightIn * dpi;
+      const perCollage = cols * rows;
+
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+
+      const zip = new JSZip();
+
+      const chunks = [];
+      for (let i = 0; i < files.length; i += perCollage) {
+        chunks.push(files.slice(i, i + perCollage));
+      }
+
+      for (let i = 0; i < chunks.length; i++) {
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        const images = await Promise.all(chunks[i].map(loadImage));
+        const cellW = canvasWidth / cols;
+        const cellH = canvasHeight / rows;
+
+        images.forEach((img, idx) => {
+          const col = idx % cols;
+          const row = Math.floor(idx / cols);
+
+          const { drawWidth, drawHeight, rotate } = fitImage(img, cellW, cellH);
+          const x = col * cellW + (cellW - drawWidth) / 2;
+          const y = row * cellH + (cellH - drawHeight) / 2;
+
+          ctx.save();
+          ctx.translate(x + drawWidth / 2, y + drawHeight / 2);
+          if (rotate) ctx.rotate(Math.PI / 2);
+          ctx.drawImage(img, rotate ? -drawHeight / 2 : -drawWidth / 2, rotate ? -drawWidth / 2 : -drawHeight / 2,
+                        rotate ? drawHeight : drawWidth, rotate ? drawWidth : drawHeight);
+          ctx.restore();
+        });
+
+        const dataURL = canvas.toDataURL('image/jpeg', 0.95);
+        const blob = await (await fetch(dataURL)).blob();
+        zip.file(`collage_${i + 1}.jpg`, blob);
+      }
+
+      downloadBtn.disabled = false;
+      downloadBtn.onclick = async () => {
+        const content = await zip.generateAsync({ type: 'blob' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(content);
+        a.download = 'collages.zip';
+        a.click();
+      };
+    }
+
+    function fitImage(img, boxW, boxH) {
+      const iw = img.width, ih = img.height;
+      const scaleNormal = Math.min(boxW / iw, boxH / ih);
+      const scaleRotated = Math.min(boxW / ih, boxH / iw);
+
+      const normalArea = (iw * scaleNormal) * (ih * scaleNormal);
+      const rotatedArea = (ih * scaleRotated) * (iw * scaleRotated);
+
+      if (rotatedArea > normalArea) {
+        return {
+          drawWidth: ih * scaleRotated,
+          drawHeight: iw * scaleRotated,
+          rotate: true
+        };
+      } else {
+        return {
+          drawWidth: iw * scaleNormal,
+          drawHeight: ih * scaleNormal,
+          rotate: false
+        };
+      }
+    }
+
+    function loadImage(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  </script>
+</body>
+</html>
