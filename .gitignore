@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+#dont push photos to github
+/input/*
+/output/*
+
 # Distribution / packaging
 .Python
 build/
